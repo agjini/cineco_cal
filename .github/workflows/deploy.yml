@@ -1,0 +1,31 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - develop
+      - main
+
+jobs:
+  deployment:
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency: production
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Deploy on server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USER }}
+          key: ${{ secrets.KEY }}
+          port: ${{ secrets.PORT }}
+          script: |
+            set -e
+            cd ~
+            git clone -b "${{ github.base_ref }}" git@github.com:oxymore-tech/cineco_cal.git "cineco_cal" || true;
+            cd "cineco_cal/deploy"
+            git pull
+            ./cineco_cal start

@@ -1,0 +1,27 @@
+version: "3.8"
+services:
+
+  back:
+    build: ../
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=gateway"
+      - "traefik.http.routers.cineco-cal.rule=Host(`cineco.gjini.co`)"
+      - "traefik.http.routers.cineco-cal.entrypoints=web"
+      - "traefik.http.routers.cineco-cal.middlewares=redirect@file"
+      - "traefik.http.routers.cineco-cal-secure.rule=Host(`cineco.gjini.co`)"
+      - "traefik.http.routers.cineco-cal-secure.entrypoints=web-secure"
+      - "traefik.http.routers.cineco-cal-secure.middlewares=compress@file"
+      - "traefik.http.routers.cineco-cal-secure.tls.certResolver=gjinico"
+      - "traefik.http.services.cineco-cal.loadbalancer.server.port=8000"
+    environment:
+      LOCATION_NAME: ${LOCATION_NAME}
+      CINEGESTION_USER: ${CINEGESTION_USER}
+      CINEGESTION_PASSWORD: ${CINEGESTION_PASSWORD}
+    networks:
+      - gateway
+    restart: unless-stopped
+
+networks:
+  gateway:
+    external: true

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -e
+
+CINECO_CAL_HOME=$(cd "$(dirname "$0")/.." || exit;pwd)
+
+function cineco_cal_compose {  
+  docker compose -f "${CINECO_CAL_HOME}/deploy/cineco_cal.yml" -p "cineco_cal" "${@}"
+}
+
+function start {
+  cineco_cal_compose up -d --build --remove-orphans
+}
+
+function stop {
+  cineco_cal_compose down
+}
+
+case "$1" in
+ start)
+   source_env
+   start
+  ;;
+ stop)
+   source_env
+   stop
+  ;;
+ *)
+  echo "Usage: cineco_cal (start|stop)"
+  ;;
+esac

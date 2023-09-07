@@ -1,12 +1,11 @@
 #[macro_use]
 extern crate rocket;
 
-use std::fs;
-
 use chrono::{DateTime, Local, Timelike, TimeZone};
 use ics::{escape_text, Event, ICalendar};
 use ics::properties::{Attendee, Categories, Description, DtEnd, DtStart, Status, Summary};
 use regex::Regex;
+use scraper::{ElementRef, Html, Selector};
 
 #[launch]
 fn rocket() -> _ {
@@ -18,48 +17,27 @@ struct Movie {
     id: u32,
     title: String,
     date: DateTime<Local>,
-    has_short: bool,
+    projector: Option<String>,
     assigned_to: Vec<String>,
 }
 
-#[get("/")]
-fn generate_calendar() -> Result<String, String> {
-    let file_content = fs::read_to_string("input.txt")
-        .map_err(|e| e.to_string())?;
+struct Config {
+    cinegestion_login: String,
+    cinegestion_password: String,
+}
 
-    let re = Regex::new(r"(?<id>\d+)\s+Benevoles\s+Ste-Enimie\s+(?<day>\w+)\s+(?<day_of_month>\d\d)\s+(?<month>\w+)\s+(?<year>\d\d\d\d)\s+(?<hour>\d\d+):(?<min>\d\d+)\s+(?<title>.*)\n(court-métrage:\s(?<short_number>\d+))?\s+(?<projo>\S+)\s+(?<assigned_to>.*)Chèques\nLiquide").unwrap();
-    let mut movies = vec![];
-    for c in re.captures_iter(&file_content) {
-        let date = Local.with_ymd_and_hms(
-            c["year"].parse().unwrap(),
-            match &c["month"] {
-                "janvier" => 1,
-                "février" => 2,
-                "mars" => 3,
-                "avril" => 4,
-                "mai" => 5,
-                "juin" => 6,
-                "juillet" => 7,
-                "août" => 8,
-                "septembre" => 9,
-                "octobre" => 10,
-                "novembre" => 11,
-                "décembre" => 12,
-                _ => panic!("unknown month"),
-            },
-            c["day_of_month"].parse().unwrap(),
-            c["hour"].parse().unwrap(),
-            c["min"].parse().unwrap(),
-            0,
-        ).unwrap();
-        movies.push(Movie {
-            id: c["id"].parse().unwrap(),
-            title: c["title"].to_string(),
-            date,
-            has_short: c.name("short_number").is_some(),
-            assigned_to: c["assigned_to"].split(", ").map(|s| parse_firstname(s)).filter_map(|f| f).collect(),
-        });
-    }
+#[get("/<location>/<me>")]
+async fn generate_calendar(location: &str, me: &str) -> Result<String, String> {
+    let config = load_config();
+    let html = parse_cinegestion(&config).await?;
+
+    let fragment = Html::parse_fragment(&html);
+    let ul_selector = Selector::parse(r#"tr[data-type="show"]"#).unwrap();
+    let td_selector = Selector::parse(r#"td"#).unwrap();
+
+    let movies: Vec<_> = fragment.select(&ul_selector)
+        .filter_map(|show| parse_movie(location, show, &td_selector))
+        .collect();
     println!("Found {:?} movie(s)", movies.len());
 
     // create new iCalendar object
@@ -69,7 +47,7 @@ fn generate_calendar() -> Result<String, String> {
         // create event which contains the information regarding the conference
         let mut event = Event::new(movie.id.to_string(), movie.date.to_rfc3339());
         for assigned in movie.assigned_to.clone() {
-            if assigned.eq("Augustin") {
+            if assigned.eq(me) {
                 event.push(Status::confirmed());
             }
             event.push(Attendee::new(assigned));
@@ -82,12 +60,104 @@ fn generate_calendar() -> Result<String, String> {
         event.push(Categories::new("CINEMA"));
         event.push(Summary::new(movie.title.clone()));
         event.push(Description::new(escape_text(
-            format!("Numéro de séance: {}\nProjection du film '{}'\nProjectioniste(s): {}\nCourt métrage : {}", movie.id, &movie.title, movie.assigned_to.join(", "), if movie.has_short { "Oui" } else { "Non" })
+            format!("Numéro de séance: {}\nProjection du film '{}'\nProjectioniste(s): {}", movie.id, &movie.title, movie.assigned_to.join(", "))
         )));
         calendar.add_event(event);
     }
 
     Ok(calendar.to_string())
+}
+
+fn load_config() -> Config {
+    Config {
+        cinegestion_login: std::env::var("CINEGESTION_LOGIN").expect("Miss CINEGESTION_LOGIN"),
+        cinegestion_password: std::env::var("CINEGESTION_PASSWORD").expect("Miss CINEGESTION_PASSWORD"),
+    }
+}
+
+fn parse_movie(location: &str, show: ElementRef, td_selector: &Selector) -> Option<Movie> {
+    let tds: Vec<_> = show.select(&td_selector)
+        .collect();
+    let voluntary = tds[1].inner_html();
+    let movie_location = tds[2].inner_html();
+    if tds.len() < 7 {
+        None
+    } else if !voluntary.eq("Benevoles") {
+        None
+    } else if !movie_location.eq(location) {
+        None
+    } else {
+        let date = parse_date(&tds[3].inner_html())?;
+        let title = tds[4].inner_html().trim().to_string();
+        let projector = match tds[5].inner_html().trim() {
+            "N/A" => None,
+            s => Some(s.to_string()),
+        };
+        let assigned_to = match tds[6].value().attr("data-names") {
+            None => vec![],
+            Some(v) => v.split(", ")
+                .map(|s| parse_firstname(s)).filter_map(|f| f).collect()
+        };
+        Some(Movie {
+            id: tds[0].inner_html().parse::<u32>().unwrap(),
+            title,
+            date,
+            projector,
+            assigned_to,
+        })
+    }
+}
+
+fn parse_date(date: &str) -> Option<DateTime<Local>> {
+    let date_pattern: Regex = Regex::new(r"(?<day>\w+) (?<day_of_month>\d{2}) (?<month>\w+) (?<year>\d{4}) (?<hour>\d{2}):(?<min>\d{2})").unwrap();
+    date_pattern.captures(date)
+        .map(|re| Local.with_ymd_and_hms(
+            re["year"].parse::<i32>().unwrap(),
+            parse_month(&re["month"]),
+            re["day_of_month"].parse::<u32>().unwrap(),
+            re["hour"].parse::<u32>().unwrap(),
+            re["min"].parse::<u32>().unwrap(),
+            0,
+        ).single())?
+}
+
+fn parse_month(month: &str) -> u32 {
+    match month {
+        "janvier" => 1,
+        "février" => 2,
+        "mars" => 3,
+        "avril" => 4,
+        "mai" => 5,
+        "juin" => 6,
+        "juillet" => 7,
+        "août" => 8,
+        "septembre" => 9,
+        "octobre" => 10,
+        "novembre" => 11,
+        _ => 12
+    }
+}
+
+async fn parse_cinegestion(&config: &Config) -> Result<String, String> {
+    let params = [("login", config.cinegestion_login), ("password", config.cinegestion_password)];
+    let client = reqwest::Client::builder()
+        .cookie_store(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let _ = client.post("https://cineco.cinegestion.fr/login")
+        .form(&params)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let resp = client.get("https://cineco.cinegestion.fr/admin")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let html = resp.text().await.map_err(|e| e.to_string())?;
+    Ok(html)
 }
 
 fn parse_firstname(assigned: &str) -> Option<String> {

@@ -1,5 +1,5 @@
 [package]
-name = "cineco_calendar"
+name = "cineco_cal"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,3 +8,6 @@ chrono = "0.4.29"
 ics = "0.5.8"
 regex = "1.9.5"
 rocket = "0.5.0-rc.3"
+reqwest = { version = "0.11", features = ["cookies"] }
+tokio = { version = "1", features = ["full"] }
+scraper = "0.17.1"
