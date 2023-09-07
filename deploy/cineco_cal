@@ -17,11 +17,9 @@ function stop {
 
 case "$1" in
  start)
-   source_env
    start
   ;;
  stop)
-   source_env
    stop
   ;;
  *)
