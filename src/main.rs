@@ -29,7 +29,7 @@ struct Config {
 #[get("/<location>/<me>")]
 async fn generate_calendar(location: &str, me: &str) -> Result<String, String> {
     let config = load_config();
-    let html = parse_cinegestion(&config).await?;
+    let html = parse_cinegestion(config).await?;
 
     let fragment = Html::parse_fragment(&html);
     let ul_selector = Selector::parse(r#"tr[data-type="show"]"#).unwrap();
@@ -138,7 +138,7 @@ fn parse_month(month: &str) -> u32 {
     }
 }
 
-async fn parse_cinegestion(&config: &Config) -> Result<String, String> {
+async fn parse_cinegestion(config: Config) -> Result<String, String> {
     let params = [("login", config.cinegestion_login), ("password", config.cinegestion_password)];
     let client = reqwest::Client::builder()
         .cookie_store(true)
