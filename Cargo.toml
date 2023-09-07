@@ -1,0 +1,10 @@
+[package]
+name = "cineco_calendar"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = "0.4.29"
+ics = "0.5.8"
+regex = "1.9.5"
+rocket = "0.5.0-rc.3"
