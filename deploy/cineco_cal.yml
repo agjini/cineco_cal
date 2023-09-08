@@ -15,6 +15,7 @@ services:
       - "traefik.http.routers.cineco-cal-secure.tls.certResolver=gjinico"
       - "traefik.http.services.cineco-cal.loadbalancer.server.port=8000"
     environment:
+      TZ: Europe/Paris
       CINEGESTION_LOGIN: ${CINEGESTION_LOGIN}
       CINEGESTION_PASSWORD: ${CINEGESTION_PASSWORD}
     networks:
