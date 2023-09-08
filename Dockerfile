@@ -11,4 +11,8 @@ FROM debian:buster-slim AS app
 
 COPY --from=build /app/target/release/cineco_cal /
 
+ENV ROCKET_ADDRESS=0.0.0.0
+
+EXPOSE 8000
+
 CMD ["/cineco_cal"]
