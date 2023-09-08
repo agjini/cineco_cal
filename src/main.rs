@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate rocket;
 
-use chrono::{DateTime, Local, Timelike, TimeZone};
+use chrono::{DateTime, Duration, Local, TimeZone};
 use ics::{escape_text, Event, ICalendar};
 use ics::properties::{Attendee, Categories, Description, DtEnd, DtStart, Status, Summary};
 use regex::Regex;
@@ -53,9 +53,8 @@ async fn generate_calendar(location: &str, me: &str) -> Result<String, String> {
             event.push(Attendee::new(assigned));
         }
         event.push(DtStart::new(movie.date.to_rfc3339()));
-        if let Some(end) = movie.date.with_hour(2) {
-            event.push(DtEnd::new(end.to_rfc3339()));
-        }
+        let end = movie.date + Duration::hours(2);
+        event.push(DtEnd::new(end.to_rfc3339()));
         event.push(Categories::new("PROJECTION"));
         event.push(Categories::new("CINEMA"));
         event.push(Summary::new(movie.title.clone()));
