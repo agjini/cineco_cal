@@ -7,7 +7,7 @@ COPY ./src ./src
 
 RUN cargo build --release
 
-FROM debian:buster-slim AS app
+FROM debian:12-slim AS app
 
 COPY --from=build /app/target/release/cineco_cal /
 
