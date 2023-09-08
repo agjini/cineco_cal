@@ -60,7 +60,7 @@ async fn generate_calendar(location: &str, me: &str) -> Result<String, String> {
         event.push(Categories::new("CINEMA"));
         event.push(Summary::new(movie.title.clone()));
         event.push(Description::new(escape_text(
-            format!("Numéro de séance: {}\nProjection du film '{}'\nProjectioniste(s): {}", movie.id, &movie.title, movie.assigned_to.join(", "))
+            format!("Numéro de séance: {}\nProjection du film '{}'\nProjectioniste(s): {}\nProjo: {}", movie.id, &movie.title, movie.assigned_to.join(", "), movie.projector.unwrap_or("N/A".to_string()))
         )));
         calendar.add_event(event);
     }
@@ -76,15 +76,11 @@ fn load_config() -> Config {
 }
 
 fn parse_movie(location: &str, show: ElementRef, td_selector: &Selector) -> Option<Movie> {
-    let tds: Vec<_> = show.select(&td_selector)
+    let tds: Vec<_> = show.select(td_selector)
         .collect();
     let voluntary = tds[1].inner_html();
     let movie_location = tds[2].inner_html();
-    if tds.len() < 7 {
-        None
-    } else if !voluntary.eq("Benevoles") {
-        None
-    } else if !movie_location.eq(location) {
+    if tds.len() < 7 || !voluntary.eq("Benevoles") || !movie_location.eq(location) {
         None
     } else {
         let date = parse_date(&tds[3].inner_html())?;
@@ -96,7 +92,8 @@ fn parse_movie(location: &str, show: ElementRef, td_selector: &Selector) -> Opti
         let assigned_to = match tds[6].value().attr("data-names") {
             None => vec![],
             Some(v) => v.split(", ")
-                .map(|s| parse_firstname(s)).filter_map(|f| f).collect()
+                .filter_map(parse_firstname)
+                .collect()
         };
         Some(Movie {
             id: tds[0].inner_html().parse::<u32>().unwrap(),
