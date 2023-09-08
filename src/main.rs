@@ -155,7 +155,7 @@ async fn parse_cinegestion(config: Config) -> Result<String, String> {
         .await
         .map_err(|e| e.to_string())?;
 
-    let resp = client.get("https://cineco.cinegestion.fr/admin")
+    let resp = client.get("https://cineco.cinegestion.fr/admin?all=24")
         .send()
         .await
         .map_err(|e| e.to_string())?;
