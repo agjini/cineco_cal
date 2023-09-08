@@ -84,7 +84,7 @@ fn parse_movie(location: &str, show: ElementRef, td_selector: &Selector) -> Opti
         None
     } else {
         let date = parse_date(&tds[3].inner_html())?;
-        let title = tds[4].inner_html().trim().to_string();
+        let title = parse_title(tds[4].inner_html());
         let projector = match tds[5].inner_html().trim() {
             "N/A" => None,
             s => Some(s.to_string()),
@@ -103,6 +103,14 @@ fn parse_movie(location: &str, show: ElementRef, td_selector: &Selector) -> Opti
             assigned_to,
         })
     }
+}
+
+fn parse_title(title_html: String) -> String {
+    Regex::new(r"(?<title>.*)\s+<br>.*")
+        .unwrap()
+        .captures(&title_html)
+        .map(|re| re["title"].trim().to_string())
+        .unwrap_or(title_html)
 }
 
 fn parse_date(date: &str) -> Option<DateTime<Local>> {
