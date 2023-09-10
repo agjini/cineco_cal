@@ -5,7 +5,10 @@ use chrono::{DateTime, Duration, Local, SecondsFormat, TimeZone, Utc};
 use ics::{escape_text, Event, ICalendar};
 use ics::properties::{Attendee, Categories, Description, DtEnd, DtStart, Status, Summary};
 use regex::Regex;
+use rocket::http::ContentType;
+use rocket::response::status::NotFound;
 use scraper::{ElementRef, Html, Selector};
+use uuid::{Uuid, uuid};
 
 #[launch]
 fn rocket() -> _ {
@@ -27,7 +30,7 @@ struct Config {
 }
 
 #[get("/<location>/<me>")]
-async fn generate_calendar(location: &str, me: &str) -> Result<String, String> {
+async fn generate_calendar(location: &str, me: &str) -> Result<(ContentType, String), NotFound<String>> {
     let config = load_config();
     let html = parse_cinegestion(config).await?;
 
@@ -46,11 +49,12 @@ async fn generate_calendar(location: &str, me: &str) -> Result<String, String> {
         calendar.add_event(event);
     }
 
-    Ok(calendar.to_string())
+    Ok((ContentType::new("text", "calendar"), calendar.to_string()))
 }
 
 fn map_to_event<'a>(me: &str, movie: Movie) -> Event<'a> {
-    let mut event = Event::new(movie.id.to_string(), movie.date.to_rfc3339_opts(SecondsFormat::Secs, true));
+    let uid = Uuid::new_v5(&uuid!("4f345610-24a1-4c21-84cf-7f3efdf964d0"), movie.id.to_string().as_bytes());
+    let mut event = Event::new(uid.to_string(), movie.date.to_rfc3339_opts(SecondsFormat::Secs, true));
     for assigned in movie.assigned_to.clone() {
         if assigned.eq(me) {
             event.push(Status::confirmed());
@@ -146,25 +150,31 @@ fn parse_month(month: &str) -> u32 {
     }
 }
 
-async fn parse_cinegestion(config: Config) -> Result<String, String> {
+fn map_reqwest_error(e: reqwest::Error) -> NotFound<String> {
+    println!("Error while accessing cinegestion : {}", e);
+    NotFound("Error while accessing cinegestion".to_string())
+}
+
+async fn parse_cinegestion(config: Config) -> Result<String, NotFound<String>> {
     let params = [("login", config.cinegestion_login), ("password", config.cinegestion_password)];
     let client = reqwest::Client::builder()
         .cookie_store(true)
         .build()
-        .map_err(|e| e.to_string())?;
+        .map_err(map_reqwest_error)?;
 
     let _ = client.post("https://cineco.cinegestion.fr/login")
         .form(&params)
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(map_reqwest_error)?;
 
     let resp = client.get("https://cineco.cinegestion.fr/admin?all=24")
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(map_reqwest_error)?;
 
-    let html = resp.text().await.map_err(|e| e.to_string())?;
+    let html = resp.text().await
+        .map_err(map_reqwest_error)?;
     Ok(html)
 }
 
