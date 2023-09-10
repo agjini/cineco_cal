@@ -10,6 +10,8 @@ use rocket::response::status::NotFound;
 use scraper::{ElementRef, Html, Selector};
 use uuid::{Uuid, uuid};
 
+const CINECO_UUID: Uuid = uuid!("4f345610-24a1-4c21-84cf-7f3efdf964d0");
+
 #[launch]
 fn rocket() -> _ {
     rocket::build().mount("/", routes![generate_calendar])
@@ -53,7 +55,7 @@ async fn generate_calendar(location: &str, me: &str) -> Result<(ContentType, Str
 }
 
 fn map_to_event<'a>(me: &str, movie: Movie) -> Event<'a> {
-    let uid = Uuid::new_v5(&uuid!("4f345610-24a1-4c21-84cf-7f3efdf964d0"), movie.id.to_string().as_bytes());
+    let uid = Uuid::new_v5(&CINECO_UUID, movie.id.to_string().as_bytes());
     let mut event = Event::new(uid.to_string(), movie.date.to_rfc3339_opts(SecondsFormat::Secs, true));
     for assigned in movie.assigned_to.clone() {
         if assigned.eq(me) {
