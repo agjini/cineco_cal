@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate rocket;
 
-use chrono::{DateTime, Duration, Local, TimeZone};
+use chrono::{DateTime, Duration, Local, TimeZone, Utc};
 use ics::{escape_text, Event, ICalendar};
 use ics::properties::{Attendee, Categories, Description, DtEnd, DtStart, Status, Summary};
 use regex::Regex;
@@ -16,8 +16,8 @@ fn rocket() -> _ {
 struct Movie {
     id: u32,
     title: String,
-    date: DateTime<Local>,
-    projector: Option<String>,
+    date: DateTime<Utc>,
+    projector: String,
     assigned_to: Vec<String>,
 }
 
@@ -40,31 +40,37 @@ async fn generate_calendar(location: &str, me: &str) -> Result<String, String> {
         .collect();
     println!("Found {:?} movie(s)", movies.len());
 
-    // create new iCalendar object
     let mut calendar = ICalendar::new("2.0", "-//xyz Corp//NONSGML PDA Calendar Version 1.0//EN");
-
     for movie in movies {
-        // create event which contains the information regarding the conference
-        let mut event = Event::new(movie.id.to_string(), movie.date.to_rfc3339());
-        for assigned in movie.assigned_to.clone() {
-            if assigned.eq(me) {
-                event.push(Status::confirmed());
-            }
-            event.push(Attendee::new(assigned));
-        }
-        event.push(DtStart::new(movie.date.to_rfc3339()));
-        let end = movie.date + Duration::hours(2);
-        event.push(DtEnd::new(end.to_rfc3339()));
-        event.push(Categories::new("PROJECTION"));
-        event.push(Categories::new("CINEMA"));
-        event.push(Summary::new(movie.title.clone()));
-        event.push(Description::new(escape_text(
-            format!("Numéro de séance: {}\nProjection du film '{}'\nProjectioniste(s): {}\nProjo: {}", movie.id, &movie.title, movie.assigned_to.join(", "), movie.projector.unwrap_or("N/A".to_string()))
-        )));
+        let event = map_to_event(me, movie);
         calendar.add_event(event);
     }
 
     Ok(calendar.to_string())
+}
+
+fn map_to_event<'a>(me: &str, movie: Movie) -> Event<'a> {
+    let mut event = Event::new(movie.id.to_string(), movie.date.to_rfc3339());
+    for assigned in movie.assigned_to.clone() {
+        if assigned.eq(me) {
+            event.push(Status::confirmed());
+        }
+        event.push(Attendee::new(assigned));
+    }
+    event.push(DtStart::new(movie.date.to_rfc3339()));
+    let end = movie.date + Duration::hours(2);
+    event.push(DtEnd::new(end.to_rfc3339()));
+    event.push(Categories::new("PROJECTION"));
+    event.push(Categories::new("CINEMA"));
+    event.push(Summary::new(movie.title.clone()));
+    event.push(Description::new(escape_text(
+        format!("Numéro de séance: {}\n\
+            Projection du film '{}'\n\
+            Projectioniste(s): {}\n\
+            Projo: {}",
+                movie.id, &movie.title, movie.assigned_to.join(", "), movie.projector)
+    )));
+    event
 }
 
 fn load_config() -> Config {
@@ -84,10 +90,7 @@ fn parse_movie(location: &str, show: ElementRef, td_selector: &Selector) -> Opti
     } else {
         let date = parse_date(&tds[3].inner_html())?;
         let title = parse_title(tds[4].inner_html());
-        let projector = match tds[5].inner_html().trim() {
-            "N/A" => None,
-            s => Some(s.to_string()),
-        };
+        let projector = tds[5].inner_html().trim().to_string();
         let assigned_to = match tds[6].value().attr("data-names") {
             None => vec![],
             Some(v) => v.split(", ")
@@ -112,17 +115,18 @@ fn parse_title(title_html: String) -> String {
         .unwrap_or(title_html)
 }
 
-fn parse_date(date: &str) -> Option<DateTime<Local>> {
+fn parse_date(date: &str) -> Option<DateTime<Utc>> {
     let date_pattern: Regex = Regex::new(r"(?<day>\w+) (?<day_of_month>\d{2}) (?<month>\w+) (?<year>\d{4}) (?<hour>\d{2}):(?<min>\d{2})").unwrap();
     date_pattern.captures(date)
-        .map(|re| Local.with_ymd_and_hms(
+        .and_then(|re| Local.with_ymd_and_hms(
             re["year"].parse::<i32>().unwrap(),
             parse_month(&re["month"]),
             re["day_of_month"].parse::<u32>().unwrap(),
             re["hour"].parse::<u32>().unwrap(),
             re["min"].parse::<u32>().unwrap(),
             0,
-        ).single())?
+        ).single())
+        .map(|dt| dt.with_timezone(&Utc))
 }
 
 fn parse_month(month: &str) -> u32 {
