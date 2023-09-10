@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate rocket;
 
-use chrono::{DateTime, Duration, Local, TimeZone, Utc};
+use chrono::{DateTime, Duration, Local, SecondsFormat, TimeZone, Utc};
 use ics::{escape_text, Event, ICalendar};
 use ics::properties::{Attendee, Categories, Description, DtEnd, DtStart, Status, Summary};
 use regex::Regex;
@@ -50,16 +50,16 @@ async fn generate_calendar(location: &str, me: &str) -> Result<String, String> {
 }
 
 fn map_to_event<'a>(me: &str, movie: Movie) -> Event<'a> {
-    let mut event = Event::new(movie.id.to_string(), movie.date.to_rfc3339());
+    let mut event = Event::new(movie.id.to_string(), movie.date.to_rfc3339_opts(SecondsFormat::Secs, true));
     for assigned in movie.assigned_to.clone() {
         if assigned.eq(me) {
             event.push(Status::confirmed());
         }
         event.push(Attendee::new(assigned));
     }
-    event.push(DtStart::new(movie.date.to_rfc3339()));
+    event.push(DtStart::new(movie.date.to_rfc3339_opts(SecondsFormat::Secs, true)));
     let end = movie.date + Duration::hours(2);
-    event.push(DtEnd::new(end.to_rfc3339()));
+    event.push(DtEnd::new(end.to_rfc3339_opts(SecondsFormat::Secs, true)));
     event.push(Categories::new("PROJECTION"));
     event.push(Categories::new("CINEMA"));
     event.push(Summary::new(movie.title.clone()));
