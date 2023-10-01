@@ -1,191 +1,37 @@
-#[macro_use]
-extern crate rocket;
+use std::net::SocketAddr;
 
-use chrono::{DateTime, Duration, Local, TimeZone, Utc};
-use ics::{escape_text, Event, ICalendar};
-use ics::properties::{Attendee, Categories, Description, DtEnd, DtStart, Status, Summary};
-use regex::Regex;
-use rocket::http::ContentType;
-use rocket::response::status::NotFound;
-use scraper::{ElementRef, Html, Selector};
-use uuid::{Uuid, uuid};
+use axum::Router;
+use axum::routing::get;
+use tower_http::trace;
+use tower_http::trace::TraceLayer;
+use tracing::Level;
 
-const CINECO_UUID: Uuid = uuid!("4f345610-24a1-4c21-84cf-7f3efdf964d0");
+use crate::calendar::generate_calendar;
 
-#[launch]
-fn rocket() -> _ {
-    rocket::build().mount("/", routes![generate_calendar])
-}
+mod calendar;
+mod error;
 
-#[derive(Debug)]
-struct Movie {
-    id: u32,
-    title: String,
-    date: DateTime<Utc>,
-    projector: String,
-    assigned_to: Vec<String>,
-}
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt()
+        .with_target(false)
+        .compact()
+        .init();
 
-struct Config {
-    cinegestion_login: String,
-    cinegestion_password: String,
-}
+    let app = Router::new().route("/:location/:me", get(generate_calendar))
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(trace::DefaultMakeSpan::new()
+                    .level(Level::INFO))
+                .on_response(trace::DefaultOnResponse::new()
+                    .level(Level::INFO)),
+        );
 
-#[get("/<location>/<me>")]
-async fn generate_calendar(location: &str, me: &str) -> Result<(ContentType, String), NotFound<String>> {
-    let config = load_config();
-    let html = parse_cinegestion(config).await?;
+    let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
+    tracing::info!("listening on {}", addr);
 
-    let fragment = Html::parse_fragment(&html);
-    let ul_selector = Selector::parse(r#"tr[data-type="show"]"#).unwrap();
-    let td_selector = Selector::parse(r#"td"#).unwrap();
-
-    let movies: Vec<_> = fragment.select(&ul_selector)
-        .filter_map(|show| parse_movie(location, show, &td_selector))
-        .collect();
-    println!("Found {:?} movie(s)", movies.len());
-
-    let mut calendar = ICalendar::new("2.0", "-//xyz Corp//NONSGML PDA Calendar Version 1.0//EN");
-    for movie in movies {
-        let event = map_to_event(me, movie);
-        calendar.add_event(event);
-    }
-
-    Ok((ContentType::new("text", "calendar"), calendar.to_string()))
-}
-
-fn map_to_event<'a>(me: &str, movie: Movie) -> Event<'a> {
-    let uid = Uuid::new_v5(&CINECO_UUID, movie.id.to_string().as_bytes());
-    let mut event = Event::new(uid.to_string(), format_date(&movie.date));
-    for assigned in movie.assigned_to.clone() {
-        if assigned.eq(me) {
-            event.push(Status::confirmed());
-        }
-        event.push(Attendee::new(assigned));
-    }
-    event.push(DtStart::new(format_date(&movie.date)));
-    let end = movie.date + Duration::hours(2);
-    event.push(DtEnd::new(format_date(&end)));
-    event.push(Categories::new("PROJECTION"));
-    event.push(Categories::new("CINEMA"));
-    event.push(Summary::new(movie.title.clone()));
-    event.push(Description::new(escape_text(
-        format!("Numéro de séance: {}\n\
-            Projection du film '{}'\n\
-            Projectioniste(s): {}\n\
-            Projo: {}",
-                movie.id, &movie.title, movie.assigned_to.join(", "), movie.projector)
-    )));
-    event
-}
-
-fn format_date(date: &DateTime<Utc>) -> String {
-    date.format("%Y%m%dT%H%M%SZ").to_string()
-}
-
-fn load_config() -> Config {
-    Config {
-        cinegestion_login: std::env::var("CINEGESTION_LOGIN").expect("Miss CINEGESTION_LOGIN"),
-        cinegestion_password: std::env::var("CINEGESTION_PASSWORD").expect("Miss CINEGESTION_PASSWORD"),
-    }
-}
-
-fn parse_movie(location: &str, show: ElementRef, td_selector: &Selector) -> Option<Movie> {
-    let tds: Vec<_> = show.select(td_selector)
-        .collect();
-    let voluntary = tds[1].inner_html();
-    let movie_location = tds[2].inner_html();
-    if tds.len() < 7 || !voluntary.eq("Benevoles") || !movie_location.eq(location) {
-        None
-    } else {
-        let date = parse_date(&tds[3].inner_html())?;
-        let title = parse_title(tds[4].inner_html());
-        let projector = tds[5].inner_html().trim().to_string();
-        let assigned_to = match tds[6].value().attr("data-names") {
-            None => vec![],
-            Some(v) => v.split(", ")
-                .filter_map(parse_firstname)
-                .collect()
-        };
-        Some(Movie {
-            id: tds[0].inner_html().parse::<u32>().unwrap(),
-            title,
-            date,
-            projector,
-            assigned_to,
-        })
-    }
-}
-
-fn parse_title(title_html: String) -> String {
-    Regex::new(r"(?<title>.*)\s+<br>.*")
-        .unwrap()
-        .captures(&title_html)
-        .map(|re| re["title"].trim().to_string())
-        .unwrap_or(title_html)
-}
-
-fn parse_date(date: &str) -> Option<DateTime<Utc>> {
-    let date_pattern: Regex = Regex::new(r"(?<day>\w+) (?<day_of_month>\d{2}) (?<month>\w+) (?<year>\d{4}) (?<hour>\d{2}):(?<min>\d{2})").unwrap();
-    date_pattern.captures(date)
-        .and_then(|re| Local.with_ymd_and_hms(
-            re["year"].parse::<i32>().unwrap(),
-            parse_month(&re["month"]),
-            re["day_of_month"].parse::<u32>().unwrap(),
-            re["hour"].parse::<u32>().unwrap(),
-            re["min"].parse::<u32>().unwrap(),
-            0,
-        ).single())
-        .map(|dt| dt.with_timezone(&Utc))
-}
-
-fn parse_month(month: &str) -> u32 {
-    match month {
-        "janvier" => 1,
-        "février" => 2,
-        "mars" => 3,
-        "avril" => 4,
-        "mai" => 5,
-        "juin" => 6,
-        "juillet" => 7,
-        "août" => 8,
-        "septembre" => 9,
-        "octobre" => 10,
-        "novembre" => 11,
-        _ => 12
-    }
-}
-
-fn map_reqwest_error(e: reqwest::Error) -> NotFound<String> {
-    println!("Error while accessing cinegestion : {}", e);
-    NotFound("Error while accessing cinegestion".to_string())
-}
-
-async fn parse_cinegestion(config: Config) -> Result<String, NotFound<String>> {
-    let params = [("login", config.cinegestion_login), ("password", config.cinegestion_password)];
-    let client = reqwest::Client::builder()
-        .cookie_store(true)
-        .build()
-        .map_err(map_reqwest_error)?;
-
-    let _ = client.post("https://cineco.cinegestion.fr/login")
-        .form(&params)
-        .send()
+    axum::Server::bind(&addr)
+        .serve(app.into_make_service())
         .await
-        .map_err(map_reqwest_error)?;
-
-    let resp = client.get("https://cineco.cinegestion.fr/admin?all=24")
-        .send()
-        .await
-        .map_err(map_reqwest_error)?;
-
-    let html = resp.text().await
-        .map_err(map_reqwest_error)?;
-    Ok(html)
-}
-
-fn parse_firstname(assigned: &str) -> Option<String> {
-    Regex::new(r"^(?<name>\w+)(\s(.*))?$").unwrap()
-        .captures(assigned)
-        .map(|c| c["name"].to_string())
+        .unwrap();
 }
