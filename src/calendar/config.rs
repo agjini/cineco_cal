@@ -1,6 +1,6 @@
 pub struct Config {
-    pub(crate) cinegestion_login: String,
-    pub(crate) cinegestion_password: String,
+    pub cinegestion_login: String,
+    pub cinegestion_password: String,
 }
 
 impl Config {

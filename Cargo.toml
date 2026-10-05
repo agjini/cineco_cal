@@ -4,14 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-chrono = "0.4.29"
-ics = "0.5.8"
-regex = "1.9.5"
-reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "cookies"] }
+chrono = "0.4"
+ics = "0.5"
+regex = "1"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "cookies", "form"] }
 tokio = { version = "1", features = ["full"] }
-scraper = "0.17.1"
-uuid = { version = "1.4.1", features = ["v5"] }
-axum = "0.6.20"
-tower-http = { version = "0.4.0", features = ["trace"] }
+scraper = "0.27"
+uuid = { version = "1", features = ["v5"] }
+axum = "0.8"
+tower-http = { version = "0.7", features = ["trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dotenvy = { version = "0.15" }
