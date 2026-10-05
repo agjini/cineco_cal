@@ -1,18 +1,18 @@
-FROM rust:1.72 AS build
+FROM rust:1-trixie AS build
 
 WORKDIR /app
 
-COPY ./Cargo.* /app/
-COPY ./src ./src
+COPY Cargo.* ./
+COPY . ./
 
 RUN cargo build --release
 
-FROM debian:12-slim AS app
+FROM debian:trixie-slim AS app
+
+RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/target/release/cineco_cal /
 
-ENV ROCKET_ADDRESS=0.0.0.0
-
 EXPOSE 8000
 
-CMD ["/cineco_cal"]
+ENTRYPOINT ["/cineco_cal"]
