@@ -31,8 +31,8 @@ fn parse_movie(location: &str, show: ElementRef, td_selector: &Selector) -> Opti
     } else {
         let date = parse_date(&tds[3].inner_html())?;
         let title = parse_title(tds[4].inner_html());
-        let projector = tds[5].inner_html().trim().to_string();
-        let assigned_to = match tds[6].value().attr("data-names") {
+        let projector = tds[6].inner_html().trim().to_string();
+        let assigned_to = match tds[7].value().attr("data-names") {
             None => vec![],
             Some(v) => v.split(", ")
                 .filter_map(parse_firstname)
